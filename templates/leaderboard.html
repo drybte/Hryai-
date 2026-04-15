@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Nejlepší z nejlepších</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 50px auto; background: #eef2f3; text-align: center; }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; border-bottom: 1px solid #eee; }
+        th { background: #2c3e50; color: white; }
+        .back-btn { display: inline-block; margin-top: 20px; text-decoration: none; color: #27ae60; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🏆 Síň slávy</h1>
+        <p>Ti nejlepší zoologové široko daleko.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Jméno</th>
+                    <th>Skóre</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for player in leaderboard %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td><strong>{{ player.name }}</strong></td>
+                    <td>{{ player.score }} / 10</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">Zatím žádné záznamy.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="/" class="back-btn">← Zpět ke kvízu</a>
+    </div>
+</body>
+</html>
