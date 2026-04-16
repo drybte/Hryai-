@@ -1,41 +1,48 @@
-import os  # Importuje modul pro praci s operacnim systemem (napr. cesty k souborum)
-import sqlite3  # Importuje knihovnu pro praci s lokalni SQL databazi
+import os  # Importuje modul pro praci s operacnim systemem
 import requests  # Knihovna pro odesilani HTTP pozadavku na externi API
-import datetime  # Modul pro praci s datem a casem (ulozeni historie)
+import datetime  # Modul pro praci s datem a casem
 import urllib3  # Modul pro nizkourovnovou HTTP komunikaci
-from flask import Flask, request, jsonify, render_template  # Zakladni webovy framework
-from dotenv import load_dotenv  # Nacte promenne prostredi ze souboru .env
+import psycopg2  # Knihovna pro praci s PostgreSQL
+from psycopg2.extras import RealDictCursor  # Vraci radky jako slovnik
+from flask import Flask, request, jsonify, render_template
+from dotenv import load_dotenv
 
-# Vypne varovani ohledne nezabezpecenych HTTPS pozadavku (kvuli skolnimu API)
+# Vypne varovani ohledne nezabezpecenych HTTPS pozadavku
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-load_dotenv()  # Aktivuje nacitani promennych prostredi
+load_dotenv()
 
-app = Flask(__name__)  # Vytvori instanci Flask aplikace
+app = Flask(__name__)
 
 # --- KONFIGURACE DATABAZE ---
-DB_PATH = "/data/history.db"  # Cesta, kam se ulozi soubor s historii v kontejneru
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/history_db"
+)
 
 def get_db_connection():
-    # Vytvori slozku /data, pokud jeste neexistuje
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)  # Otevre spojeni k databazi
-    conn.row_factory = sqlite3.Row  # Umoznuje pristupovat k vysledkum jako ke slovniku
-    return conn  # Vrati objekt spojeni
+    # Vytvori spojeni s PostgreSQL databazi
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    return conn
 
 def init_db():
-    conn = get_db_connection()  # Pripoji se k databazi
-    # Vytvori tabulku history, pokud v souboru jeste neni
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS history 
-        (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-         genre TEXT, 
-         recommendation TEXT, 
-         timestamp TEXT)
-    ''')
-    conn.commit()  # Potvrdi zmeny v databazi
-    conn.close()  # Uzavre spojeni
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-init_db()  # Zavola inicializaci hned po spusteni skriptu
+    # Vytvori tabulku history, pokud jeste neexistuje
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS history (
+            id SERIAL PRIMARY KEY,
+            genre TEXT NOT NULL,
+            recommendation TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+init_db()
 
 # Nacte API klic a URL adresu ze systemovych promennych
 api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -50,20 +57,23 @@ def home():
 
 @app.route('/history', methods=['GET'])
 def get_history():
-    conn = get_db_connection()  # Pripoji se k DB
+    conn = get_db_connection()
+    cur = conn.cursor()
+
     # Vybere vsechny zaznamy od nejnovejsiho po nejstarsi
-    rows = conn.execute('SELECT * FROM history ORDER BY id DESC').fetchall()
+    cur.execute("SELECT * FROM history ORDER BY id DESC")
+    rows = cur.fetchall()
+
+    cur.close()
     conn.close()
-    
-    # Prevede data na seznam slovniku pro JavaScript (format JSON)
-    history_list = [dict(row) for row in rows]
-    return jsonify(history_list)
+
+    return jsonify(rows)
 
 @app.route('/recommend', methods=['POST'])
 def game_advisor():
-    data = request.json  # Ziska data odeslana z frontendu (zanr)
-    genre = data.get("genre", "akcni")  # Vychozi hodnota je "akcni"
-    
+    data = request.json
+    genre = data.get("genre", "akcni")
+
     # Textovy prikaz, ktery posilame AI modelu
     prompt = (
         f"Uzivatel ma rad herni zanr: {genre}. "
@@ -72,58 +82,58 @@ def game_advisor():
     )
 
     headers = {
-        "Authorization": f"Bearer {api_key}",  # Autorizacni hlavicka s klicem
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
     # Konfigurace pozadavku pro AI model
     payload = {
-        "model": "gemma3:27b",  # Specifikace pouziteho modelu
+        "model": "gemma3:27b",
         "messages": [
             {"role": "system", "content": "Jsi expert na videohry a herni prumysl."},
             {"role": "user", "content": prompt}
         ],
-        "stream": False  # Nechceme postupny proud textu, ale celou odpoved naraz
+        "stream": False
     }
 
     try:
-        clean_url = base_url.rstrip('/')  # Odstrani lomitko na konci URL, pokud tam je
-        target_url = f"{clean_url}/chat/completions"  # Cilova adresa API
-        
+        clean_url = base_url.rstrip('/')
+        target_url = f"{clean_url}/chat/completions"
+
         # Odeslani dotazu na AI server
         response = requests.post(
-            target_url, 
-            headers=headers, 
-            json=payload, 
-            timeout=20,  # Casovy limit pro odpoved (20 sekund)
-            verify=False  # Ignoruje kontrolu SSL (potrebne pro skolni proxy)
+            target_url,
+            headers=headers,
+            json=payload,
+            timeout=20,
+            verify=False
         )
-        
+
         if response.status_code == 200:
             # Vytahne text odpovedi z JSON struktury od AI
             ai_response = response.json()['choices'][0]['message']['content']
-            
+
             # --- ULOZENI DO DATABAZE ---
             conn = get_db_connection()
-            conn.execute(
-                'INSERT INTO history (genre, recommendation, timestamp) VALUES (?, ?, ?)',
+            cur = conn.cursor()
+
+            cur.execute(
+                "INSERT INTO history (genre, recommendation, timestamp) VALUES (%s, %s, %s)",
                 (genre, ai_response, datetime.datetime.now().strftime("%d.%m. %H:%M"))
             )
+
             conn.commit()
+            cur.close()
             conn.close()
             # ---------------------------
 
-            return jsonify({"recommendation": ai_response})  # Vrati vysledek webu
+            return jsonify({"recommendation": ai_response})
         else:
-            # Vrati chybu, pokud AI server neodpovida spravne
             return jsonify({"error": f"Server vratil {response.status_code}."}), response.status_code
 
     except Exception as e:
-        # Zachyti chyby jako vypadek site nebo pad serveru
         return jsonify({"error": f"Spojeni selhalo: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    # Nacte port z prostredi (napr. pro Docker) nebo pouzije vychozi 5000
     port = int(os.environ.get("PORT", 5000))
-    # Spusti aplikaci na adrese 0.0.0.0 (dostupna v siti)
     app.run(host="0.0.0.0", port=port)
