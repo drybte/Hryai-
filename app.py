@@ -5,7 +5,7 @@ import requests
 import urllib3
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -23,9 +23,6 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://kurim.ithope.eu/v1"
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemma3:27b")
 
 
-# -----------------------------
-# DB
-# -----------------------------
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
@@ -36,7 +33,7 @@ def wait_for_db():
             conn = get_db_connection()
             conn.close()
             return
-        except:
+        except Exception:
             time.sleep(2)
     raise Exception("DB nenabehla")
 
@@ -63,14 +60,9 @@ wait_for_db()
 init_db()
 
 
-# -----------------------------
-# ROUTY
-# -----------------------------
-
-# Root už NIC nevypisuje
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return "", 204  # žádný obsah
+    return render_template("index.html")
 
 
 @app.route("/history", methods=["GET"])
@@ -97,7 +89,11 @@ def recommend():
         data = request.get_json(silent=True) or {}
         genre = data.get("genre", "akcni")
 
-        prompt = f"Doporuc jednu hru pro zanr {genre} jednou vetou."
+        prompt = (
+            f"Uzivatel ma rad herni zanr: {genre}. "
+            "Doporuc jednu konkretni aktualni hru. "
+            "Odpovez jednou kratkou vetou v cestine."
+        )
 
         response = requests.post(
             f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
@@ -110,7 +106,8 @@ def recommend():
                 "messages": [
                     {"role": "system", "content": "Jsi expert na videohry."},
                     {"role": "user", "content": prompt}
-                ]
+                ],
+                "stream": False
             },
             timeout=20,
             verify=False
@@ -124,7 +121,6 @@ def recommend():
 
         ai_response = response.json()["choices"][0]["message"]["content"]
 
-        # ulozeni do DB
         conn = get_db_connection()
         cur = conn.cursor()
 
@@ -149,9 +145,6 @@ def recommend():
         return jsonify({"error": str(e)}), 500
 
 
-# -----------------------------
-# START
-# -----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
