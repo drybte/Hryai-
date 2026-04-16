@@ -8,7 +8,7 @@ from psycopg2.extras import RealDictCursor
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-# Vypne varovani o SSL
+# Vypne SSL warningy
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 load_dotenv()
@@ -27,24 +27,26 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://kurim.ithope.eu/v1")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemma3:27b")
 
+
 # -----------------------------
 # DB FUNKCE
 # -----------------------------
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
+
 def wait_for_db():
-    """Pocka nez nabehne databaze (Docker fix)"""
-    for i in range(10):
+    for _ in range(10):
         try:
             conn = get_db_connection()
             conn.close()
             print("DB ready")
             return
-        except:
+        except Exception:
             print("Cekam na DB...")
             time.sleep(2)
     raise Exception("Databaze nenabehla")
+
 
 def init_db():
     conn = get_db_connection()
@@ -63,17 +65,19 @@ def init_db():
     cur.close()
     conn.close()
 
+
 # Inicializace DB
 wait_for_db()
 init_db()
 
+
 # -----------------------------
 # ROUTY
 # -----------------------------
-
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({"status": "API bezi"})
+
 
 @app.route('/history', methods=['GET'])
 def get_history():
@@ -91,6 +95,7 @@ def get_history():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/recommend', methods=['POST'])
 def recommend():
@@ -128,7 +133,6 @@ def recommend():
             verify=False
         )
 
-        # Debug (pomuze s 502)
         print("STATUS:", response.status_code)
         print("BODY:", response.text)
 
@@ -170,5 +174,5 @@ def recommend():
 # START
 # -----------------------------
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8080))  # DULEZITE!
     app.run(host="0.0.0.0", port=port)
