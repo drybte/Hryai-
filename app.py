@@ -8,16 +8,11 @@ from psycopg2.extras import RealDictCursor
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-# Vypne SSL warningy
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 load_dotenv()
 
 app = Flask(__name__)
 
-# -----------------------------
-# KONFIGURACE
-# -----------------------------
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://postgres:postgres@db:5432/history_db"
@@ -28,9 +23,6 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://kurim.ithope.eu/v1"
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemma3:27b")
 
 
-# -----------------------------
-# DB FUNKCE
-# -----------------------------
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
@@ -66,41 +58,33 @@ def init_db():
     conn.close()
 
 
-# Inicializace DB
 wait_for_db()
 init_db()
 
 
-# -----------------------------
-# ROUTY
-# -----------------------------
-@app.route('/', methods=['GET'])
+@app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "API bezi"})
 
 
-@app.route('/history', methods=['GET'])
+@app.route("/history", methods=["GET"])
 def get_history():
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-
         cur.execute("SELECT * FROM history ORDER BY id DESC")
         rows = cur.fetchall()
-
         cur.close()
         conn.close()
-
         return jsonify(rows)
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/recommend', methods=['POST'])
+@app.route("/recommend", methods=["POST"])
 def recommend():
     try:
-        data = request.json
+        data = request.get_json(silent=True) or {}
         genre = data.get("genre", "akcni")
 
         prompt = (
@@ -143,17 +127,14 @@ def recommend():
                 "detail": response.text
             }), response.status_code
 
-        ai_response = response.json()['choices'][0]['message']['content']
+        ai_response = response.json()["choices"][0]["message"]["content"]
 
-        # ulozeni do DB
         conn = get_db_connection()
         cur = conn.cursor()
-
         cur.execute(
             "INSERT INTO history (genre, recommendation, timestamp) VALUES (%s, %s, %s)",
             (genre, ai_response, datetime.datetime.now().strftime("%d.%m. %H:%M"))
         )
-
         conn.commit()
         cur.close()
         conn.close()
@@ -162,17 +143,12 @@ def recommend():
 
     except requests.exceptions.Timeout:
         return jsonify({"error": "Timeout AI server"}), 504
-
     except requests.exceptions.ConnectionError:
         return jsonify({"error": "Nelze se pripojit k AI serveru"}), 502
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# -----------------------------
-# START
-# -----------------------------
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8080))  # DULEZITE!
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
