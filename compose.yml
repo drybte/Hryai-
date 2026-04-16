@@ -1,9 +1,23 @@
+version: '3.8'
+
 services:
-  web:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: history_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+
+  app:
     build: .
     ports:
-      - "8081:5000"  
+      - "5000:5000"
     environment:
-      - PORT=5000
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/history_db
+      OPENAI_API_KEY: ""
+      OPENAI_BASE_URL: https://kurim.ithope.eu/v1
+      MODEL_NAME: gemma3:27b
+    depends_on:
+      - db
