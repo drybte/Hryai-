@@ -96,44 +96,44 @@ def game_advisor():
         "stream": False
     }
 
-    try:
-        clean_url = base_url.rstrip('/')
-        target_url = f"{clean_url}/chat/completions"
+try:
+    clean_url = base_url.rstrip('/')
+    target_url = f"{clean_url}/chat/completions"
 
-        # Odeslani dotazu na AI server
-        response = requests.post(
-            target_url,
-            headers=headers,
-            json=payload,
-            timeout=20,
-            verify=False
+    print("BASE URL:", base_url)
+    print("TARGET URL:", target_url)
+    print("MODEL:", payload["model"])
+
+    response = requests.post(
+        target_url,
+        headers=headers,
+        json=payload,
+        timeout=20,
+        verify=False
+    )
+
+    print("STATUS CODE:", response.status_code)
+    print("RESPONSE TEXT:", response.text)
+
+    if response.status_code == 200:
+        ai_response = response.json()['choices'][0]['message']['content']
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO history (genre, recommendation, timestamp) VALUES (%s, %s, %s)",
+            (genre, ai_response, datetime.datetime.now().strftime("%d.%m. %H:%M"))
         )
+        conn.commit()
+        cur.close()
+        conn.close()
 
-        if response.status_code == 200:
-            # Vytahne text odpovedi z JSON struktury od AI
-            ai_response = response.json()['choices'][0]['message']['content']
+        return jsonify({"recommendation": ai_response})
+    else:
+        return jsonify({
+            "error": f"Server vratil {response.status_code}.",
+            "details": response.text
+        }), response.status_code
 
-            # --- ULOZENI DO DATABAZE ---
-            conn = get_db_connection()
-            cur = conn.cursor()
-
-            cur.execute(
-                "INSERT INTO history (genre, recommendation, timestamp) VALUES (%s, %s, %s)",
-                (genre, ai_response, datetime.datetime.now().strftime("%d.%m. %H:%M"))
-            )
-
-            conn.commit()
-            cur.close()
-            conn.close()
-            # ---------------------------
-
-            return jsonify({"recommendation": ai_response})
-        else:
-            return jsonify({"error": f"Server vratil {response.status_code}."}), response.status_code
-
-    except Exception as e:
-        return jsonify({"error": f"Spojeni selhalo: {str(e)}"}), 500
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+except Exception as e:
+    return jsonify({"error": f"Spojeni selhalo: {str(e)}"}), 500
