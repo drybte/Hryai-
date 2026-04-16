@@ -7,17 +7,16 @@ services:
       POSTGRES_DB: history_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
 
   app:
     build: .
     ports:
-      - "5000:5000"
+      - "8080:8080"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/history_db
       OPENAI_API_KEY: ""
       OPENAI_BASE_URL: https://kurim.ithope.eu/v1
       MODEL_NAME: gemma3:27b
+      PORT: 8080
     depends_on:
       - db
